@@ -84,9 +84,15 @@ def build_case_summary(context: dict) -> dict:
         "download_match_count": len(context.get("downloads_matches", []) or []),
         "network_files": _unique(item.get("file") for item in network_matches),
         "network_scan": {
-            "primary_tmp_files_scanned": sum(item.get("primary_tmp_files_scanned", 0) for item in scan_summaries),
+            "primary_network_files_scanned": sum(
+                item.get("primary_network_files_scanned", item.get("primary_tmp_files_scanned", 0))
+                for item in scan_summaries
+            ),
             "fallback_text_files_scanned": sum(item.get("fallback_text_files_scanned", 0) for item in scan_summaries),
-            "primary_tmp_files_with_target": sum(item.get("primary_tmp_files_with_target", 0) for item in scan_summaries),
+            "primary_network_files_with_target": sum(
+                item.get("primary_network_files_with_target", item.get("primary_tmp_files_with_target", 0))
+                for item in scan_summaries
+            ),
             "fallback_text_files_with_target": sum(item.get("fallback_text_files_with_target", 0) for item in scan_summaries),
             "files_with_target": _unique(
                 file_path

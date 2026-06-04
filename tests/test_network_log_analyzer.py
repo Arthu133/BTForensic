@@ -32,7 +32,7 @@ class NetworkLogAnalyzerTest(unittest.TestCase):
 
             self.assertEqual(len(result["network_log_matches"]), 1)
             match = result["network_log_matches"][0]
-            self.assertEqual(match["discovery_method"], "primary_network_tmp_select_string")
+            self.assertEqual(match["discovery_method"], "primary_network_directory_scan")
             self.assertIn("Select-String", match["select_string_equivalent"])
             self.assertIn(str(network), match["select_string_equivalent"])
             self.assertIn("linkedin.com", match["select_string_equivalent"])
@@ -71,7 +71,7 @@ class NetworkLogAnalyzerTest(unittest.TestCase):
                 if item.get("source") == "net.http_server_properties.servers"
             ]
             self.assertEqual(len(structured), 1)
-            self.assertEqual(structured[0]["discovery_method"], "primary_network_tmp_select_string")
+            self.assertEqual(structured[0]["discovery_method"], "primary_network_directory_scan")
             self.assertEqual(structured[0]["matched_server"], "https://linkedin.com")
             self.assertIn("https://origin.example", structured[0]["inferred_origins_from_anonymization"])
 
@@ -93,8 +93,27 @@ class NetworkLogAnalyzerTest(unittest.TestCase):
 
             self.assertEqual(len(result["network_log_matches"]), 1)
             match = result["network_log_matches"][0]
-            self.assertEqual(match["discovery_method"], "primary_network_tmp_select_string")
+            self.assertEqual(match["discovery_method"], "primary_network_directory_scan")
             self.assertIn(str(network), match["select_string_equivalent"])
+
+    def test_non_tmp_network_file_is_scanned_as_primary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            profile = Path(tmp) / "Default"
+            network = profile / "Network"
+            network.mkdir(parents=True)
+            (network / "Network Persistent State").write_text("server=https://linkedin.com", encoding="utf-8")
+
+            result = analyze_network_logs(
+                "Default",
+                profile,
+                normalize_target("linkedin.com"),
+                logging.getLogger("test"),
+            )
+
+            self.assertEqual(len(result["network_log_matches"]), 1)
+            match = result["network_log_matches"][0]
+            self.assertEqual(match["discovery_method"], "primary_network_directory_scan")
+            self.assertIn("Network Persistent State", match["file"])
 
 
 if __name__ == "__main__":

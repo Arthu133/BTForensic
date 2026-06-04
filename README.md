@@ -146,26 +146,26 @@ case_example/
 - `Cookies` or `Network/Cookies`: target-domain cookies and third-party cookies associated with related time-window domains, without raw values.
 - `Bookmarks`: JSON bookmarks matching the target domain or URL.
 - `Downloads`: `downloads` and `downloads_url_chains` entries related to the target or within the target visit window.
-- Network text artifacts: `.tmp`, `.log`, `.json`, `.ldb`, `.txt`, and `.dat` files under profile, `Network`, `Network Logs`, `Service Worker`, and `Cache`.
+- Network artifacts: all direct files under the profile `Network` directory, plus textual fallback artifacts such as `.tmp`, `.log`, `.json`, `.ldb`, `.txt`, and `.dat` under `Network Logs`, `Service Worker`, `Cache`, and related profile folders.
 - Origins/referrers/initiators: direct target calls, callers of the target, third-party domains in the time window, possible redirects.
 
 ## Network Origin Investigation Method
 
-For `.tmp` and other textual network artifacts, BTForensic follows the SOC workflow below:
+For the profile `Network` directory and other textual network artifacts, BTForensic follows the SOC workflow below:
 
-1. Locate the primary `.tmp` file that recorded the access, equivalent to:
-
-   ```powershell
-   Select-String -Path "User Data\Default\Network\*.tmp" -Pattern "URL" -List | % Path
-   ```
-
-   Matches from this step are marked as `discovery_method = primary_network_tmp_select_string`. In JSON output, `select_string_equivalent` is written with the real expanded path, for example:
+1. Locate the primary file that recorded the access by scanning all direct files under `Network`, equivalent to:
 
    ```powershell
-   Select-String -Path "C:\Users\username\AppData\Local\Microsoft\Edge\User Data\Network\*.tmp" -Pattern "example.com" -List | % Path
+   Select-String -Path "User Data\Default\Network\*" -Pattern "URL" -List | % Path
    ```
 
-   If the evidence is under a specific profile, the expanded path reflects that profile, such as `User Data\Default\Network\*.tmp`.
+   Matches from this step are marked as `discovery_method = primary_network_directory_scan`. In JSON output, `select_string_equivalent` is written with the real expanded path, for example:
+
+   ```powershell
+   Select-String -Path "C:\Users\username\AppData\Local\Microsoft\Edge\User Data\Network\*" -Pattern "example.com" -List | % Path
+   ```
+
+   If the evidence is under a specific profile, the expanded path reflects that profile, such as `User Data\Default\Network\*`.
 2. When the file is a Chromium network JSON artifact, parse the equivalent of:
 
    ```jq
