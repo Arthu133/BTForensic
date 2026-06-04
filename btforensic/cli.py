@@ -31,6 +31,7 @@ BANNER = r"""
 |____/ |_| |_|  \___/|_|  \___|_| |_|___/_|\___|
 
 Defensive Chromium browser forensics | read-only local analysis
+made by tzndias
 """
 
 

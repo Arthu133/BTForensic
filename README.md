@@ -75,6 +75,7 @@ When an analysis starts, the terminal displays a `BTForensic` banner before the 
 |____/ |_| |_|  \___/|_|  \___|_| |_|___/_|\___|
 
 Defensive Chromium browser forensics | read-only local analysis
+made by tzndias
 ```
 
 Chrome on Windows:
@@ -181,27 +182,6 @@ This helps identify the page, top-frame site, frame site, or isolation context t
 
 ```powershell
 python -m unittest discover -s tests
-```
-
-## Publishing For Public Use
-
-Create a GitHub repository named `BTForensic`, then run these commands inside the project directory:
-
-```powershell
-git init
-git add .
-git commit -m "Initial BTForensic release"
-git branch -M main
-git remote add origin https://github.com/Arthu133/BTForensic.git
-git push -u origin main
-```
-
-After that, anyone can download and install the tool with:
-
-```powershell
-git clone https://github.com/Arthu133/BTForensic.git
-cd BTForensic
-pip install -e .
 ```
 
 ## Notes
