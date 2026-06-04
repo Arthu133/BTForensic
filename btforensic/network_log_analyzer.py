@@ -19,7 +19,7 @@ SENSITIVE_WORDS = ("cookie", "authorization", "token", "secret", "session")
 
 def _select_string_command(network_dir: Path, target: TargetInfo) -> str:
     pattern = target.normalized_url or target.raw or target.domain
-    return f'Select-String -Path "{network_dir}\\*" -Pattern "{pattern}" -List | % Path'
+    return f'Select-String -Path "{network_dir}\\*.tmp" -Pattern "{pattern}" -List | % Path'
 
 
 def _candidate_files(profile_path: Path):
