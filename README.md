@@ -158,7 +158,13 @@ For `.tmp` and other textual network artifacts, BTForensic follows the SOC workf
    Select-String -Path "User Data\Default\Network\*.tmp" -Pattern "URL" -List | % Path
    ```
 
-   Matches from this step are marked as `discovery_method = primary_network_tmp_select_string`.
+   Matches from this step are marked as `discovery_method = primary_network_tmp_select_string`. In JSON output, `select_string_equivalent` is written with the real expanded path, for example:
+
+   ```powershell
+   Select-String -Path "C:\Users\username\AppData\Local\Microsoft\Edge\User Data\Network\*.tmp" -Pattern "example.com" -List | % Path
+   ```
+
+   If the evidence is under a specific profile, the expanded path reflects that profile, such as `User Data\Default\Network\*.tmp`.
 2. When the file is a Chromium network JSON artifact, parse the equivalent of:
 
    ```jq

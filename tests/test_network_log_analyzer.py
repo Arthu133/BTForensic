@@ -34,6 +34,8 @@ class NetworkLogAnalyzerTest(unittest.TestCase):
             match = result["network_log_matches"][0]
             self.assertEqual(match["discovery_method"], "primary_network_tmp_select_string")
             self.assertIn("Select-String", match["select_string_equivalent"])
+            self.assertIn(str(network), match["select_string_equivalent"])
+            self.assertIn("linkedin.com", match["select_string_equivalent"])
             self.assertIn("https://origin.example", match["inferred_origins_from_anonymization"])
             self.assertIn("https://linkedin.com", match["anonymization_urls"])
 
@@ -72,6 +74,27 @@ class NetworkLogAnalyzerTest(unittest.TestCase):
             self.assertEqual(structured[0]["discovery_method"], "primary_network_tmp_select_string")
             self.assertEqual(structured[0]["matched_server"], "https://linkedin.com")
             self.assertIn("https://origin.example", structured[0]["inferred_origins_from_anonymization"])
+
+    def test_user_data_network_tmp_path_is_also_primary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            user_data = Path(tmp) / "User Data"
+            profile = user_data / "Default"
+            profile.mkdir(parents=True)
+            network = user_data / "Network"
+            network.mkdir(parents=True)
+            (network / "root-network.tmp").write_text("GET https://linkedin.com", encoding="utf-8")
+
+            result = analyze_network_logs(
+                "Default",
+                profile,
+                normalize_target("linkedin.com"),
+                logging.getLogger("test"),
+            )
+
+            self.assertEqual(len(result["network_log_matches"]), 1)
+            match = result["network_log_matches"][0]
+            self.assertEqual(match["discovery_method"], "primary_network_tmp_select_string")
+            self.assertIn(str(network), match["select_string_equivalent"])
 
 
 if __name__ == "__main__":
