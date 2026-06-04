@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 
@@ -24,7 +25,7 @@ def _walk_bookmarks(node: dict, path: list[str]):
         yield from _walk_bookmarks(child, current_path)
 
 
-def analyze_bookmarks(profile_name: str, profile_path: Path, target: TargetInfo, raw_output: Path, logger: logging.Logger) -> dict:
+def analyze_bookmarks(profile_name: str, profile_path: Path, target: TargetInfo, raw_output: Path | None, logger: logging.Logger) -> dict:
     bookmarks_path = profile_path / "Bookmarks"
     result = {"bookmarks_matches": [], "raw_bookmarks": None, "errors": []}
     if not bookmarks_path.exists():
@@ -33,7 +34,10 @@ def analyze_bookmarks(profile_name: str, profile_path: Path, target: TargetInfo,
         result["errors"].append(msg)
         return result
     try:
-        normalized = normalize_json_file(bookmarks_path, raw_output / f"{profile_name}_bookmarks.json", logger)
+        if raw_output is None:
+            normalized = json.loads(bookmarks_path.read_text(encoding="utf-8"))
+        else:
+            normalized = normalize_json_file(bookmarks_path, raw_output / f"{profile_name}_bookmarks.json", logger)
         result["raw_bookmarks"] = {"profile": profile_name, "bookmarks": normalized}
         roots = normalized.get("roots", {})
         matches = []

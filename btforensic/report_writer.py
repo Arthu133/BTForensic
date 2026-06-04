@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .summary_builder import build_case_summary
+
 
 def _count(items) -> int:
     return len(items or [])
@@ -14,6 +16,7 @@ def _first_last(summaries: list[dict]) -> tuple[str | None, str | None]:
 
 
 def write_report(output_path: Path, context: dict) -> None:
+    case_summary = build_case_summary(context)
     summaries = context.get("history_summaries", [])
     first_seen, last_seen = _first_last(summaries)
     access_count = sum(item.get("access_count", 0) for item in summaries)
@@ -36,10 +39,57 @@ def write_report(output_path: Path, context: dict) -> None:
         f"- Cookies related: {_count(context.get('cookies_matches'))}",
         f"- Downloads in window: {_count(context.get('downloads_matches'))}",
         f"- Network log matches: {_count(context.get('network_log_matches'))}",
+        f"- Probable caller found: {'Yes' if case_summary['probable_caller_found'] else 'No'}",
         "",
-        "## History",
+        "## Who Called The URL",
         "",
     ]
+
+    callers = case_summary.get("probable_callers", [])
+    if callers:
+        lines.append("| Caller | Confidence | Method | Evidence | Target Record |")
+        lines.append("| --- | --- | --- | --- | --- |")
+        for item in callers[:25]:
+            lines.append(
+                f"| `{item.get('caller')}` | {item.get('confidence')} | {item.get('method')} | "
+                f"`{item.get('evidence')}` | `{item.get('target_record') or ''}` |"
+            )
+    else:
+        lines.extend(
+            [
+                "- No caller/origin could be inferred from network logs, referrers, initiators, or anonymization payloads.",
+                "- Check `artifacts/network_log_matches.json` for raw matched records and decoded anonymization evidence.",
+            ]
+        )
+
+    lines.extend(
+        [
+            "",
+            "## Evidence Counts",
+            "",
+            f"- History visits matched: {case_summary['history_match_count']}",
+            f"- Network records matched: {case_summary['network_match_count']}",
+            f"- Cookies matched: {case_summary['cookie_match_count']}",
+            f"- Bookmarks matched: {case_summary['bookmark_match_count']}",
+            f"- Downloads matched: {case_summary['download_match_count']}",
+            "",
+            "## Network Files With Target Evidence",
+            "",
+        ]
+    )
+    if case_summary.get("network_files"):
+        for file_path in case_summary["network_files"][:50]:
+            lines.append(f"- `{file_path}`")
+    else:
+        lines.append("- No network files contained target evidence.")
+
+    lines.extend(
+        [
+            "",
+        "## History",
+        "",
+        ]
+    )
 
     if context.get("history_matches"):
         for item in context["history_matches"][:50]:

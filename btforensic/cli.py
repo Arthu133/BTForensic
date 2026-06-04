@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from datetime import timedelta
 from pathlib import Path
@@ -19,6 +18,7 @@ from .origins_analyzer import build_origins_and_referrers
 from .report_writer import write_report
 from .safe_redaction import mask_url_query, redact_headers, sha256_value
 from .sqlite_exporter import write_json
+from .summary_builder import build_case_summary
 from .timeline_builder import build_timeline
 from .timestamp_utils import chrome_time_to_datetime
 
@@ -45,7 +45,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--user-data", required=True, help="Path to the browser User Data directory.")
     parser.add_argument("--target", required=True, help="Target domain or URL to investigate.")
-    parser.add_argument("--output", required=True, help="Directory where reports and JSON artifacts will be written.")
+    parser.add_argument("--output", help="Directory where reports and JSON artifacts will be written. If omitted, prints a terminal summary only.")
     parser.add_argument("--profile", help="Analyze a specific browser profile, such as Default or Profile 1.")
     parser.add_argument("--window-minutes", type=int, default=30, help="Correlation window around target visits. Default: 30.")
     parser.add_argument("--verbose", action="store_true", help="Enable detailed logging.")
@@ -88,14 +88,54 @@ def _visit_windows(visits: list[dict], window_minutes: int) -> list[tuple]:
     return windows
 
 
+def _print_terminal_summary(context: dict) -> None:
+    summary = build_case_summary(context)
+    print()
+    print("BTForensic Findings")
+    print("===================")
+    print(f"Target: {summary['target']} ({summary['target_domain']})")
+    print(f"Profiles: {', '.join(summary['profiles']) or 'None'}")
+    print(f"First seen: {summary['first_seen_utc'] or 'Not found'}")
+    print(f"Last seen: {summary['last_seen_utc'] or 'Not found'}")
+    print()
+    print("Evidence counts")
+    print(f"- History visits: {summary['history_match_count']}")
+    print(f"- Network records: {summary['network_match_count']}")
+    print(f"- Cookies: {summary['cookie_match_count']}")
+    print(f"- Bookmarks: {summary['bookmark_match_count']}")
+    print(f"- Downloads: {summary['download_match_count']}")
+    print()
+    print("Who called the URL")
+    callers = summary.get("probable_callers", [])
+    if callers:
+        for item in callers[:10]:
+            print(f"- {item['caller']} [{item['confidence']}] via {item['method']} ({item['source']})")
+            print(f"  evidence: {item['evidence']}")
+            if item.get("target_record"):
+                print(f"  target record: {item['target_record']}")
+    else:
+        print("- Not identified from available History, Network logs, referrer/initiator fields, or anonymization payloads.")
+    if summary.get("network_files"):
+        print()
+        print("Network files with target evidence")
+        for file_path in summary["network_files"][:10]:
+            print(f"- {file_path}")
+    if summary.get("errors"):
+        print()
+        print("Warnings/errors")
+        for error in summary["errors"][:10]:
+            print(f"- {error}")
+
+
 def run(args: argparse.Namespace) -> int:
     print_banner()
 
-    output_dir = Path(args.output)
-    artifacts_dir = output_dir / "artifacts"
-    raw_dir = output_dir / "raw_converted"
-    for directory in (artifacts_dir, raw_dir, output_dir / "logs"):
-        directory.mkdir(parents=True, exist_ok=True)
+    output_dir = Path(args.output) if args.output else None
+    artifacts_dir = output_dir / "artifacts" if output_dir else None
+    raw_dir = output_dir / "raw_converted" if output_dir else None
+    if output_dir:
+        for directory in (artifacts_dir, raw_dir, output_dir / "logs"):
+            directory.mkdir(parents=True, exist_ok=True)
 
     logger = setup_logging(output_dir, args.verbose)
     logger.info("BTForensic started")
@@ -189,12 +229,6 @@ def run(args: argparse.Namespace) -> int:
         "bookmarks.json": raw_bookmarks,
     }
 
-    for filename, payload in artifact_payloads.items():
-        write_json(artifacts_dir / filename, _sanitize_json(payload))
-    for filename, payload in raw_payloads.items():
-        write_json(raw_dir / filename, _sanitize_json(payload))
-    write_json(output_dir / "timeline.json", _sanitize_json(timeline))
-
     context = {
         "target_raw": target.raw,
         "target_domain": target.domain,
@@ -210,11 +244,20 @@ def run(args: argparse.Namespace) -> int:
         "timeline": _sanitize_json(timeline),
         "errors": errors,
     }
-    report_path = output_dir / "BTForensic_report.md"
-    write_report(report_path, context)
 
-    logger.info("Report written to: %s", report_path)
-    logger.info("Timeline written to: %s", output_dir / "timeline.json")
+    if output_dir:
+        for filename, payload in artifact_payloads.items():
+            write_json(artifacts_dir / filename, _sanitize_json(payload))
+        for filename, payload in raw_payloads.items():
+            write_json(raw_dir / filename, _sanitize_json(payload))
+        write_json(output_dir / "timeline.json", _sanitize_json(timeline))
+        report_path = output_dir / "BTForensic_report.md"
+        write_report(report_path, context)
+
+        logger.info("Report written to: %s", report_path)
+        logger.info("Timeline written to: %s", output_dir / "timeline.json")
+    else:
+        _print_terminal_summary(context)
     return 0
 
 

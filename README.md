@@ -83,6 +83,12 @@ Chrome on Windows:
 BTForensic --user-data "C:\Users\username\AppData\Local\Google\Chrome\User Data" --target "example.com" --output ".\case_example"
 ```
 
+Terminal-only summary without writing a report:
+
+```powershell
+BTForensic --user-data "C:\Users\username\AppData\Local\Google\Chrome\User Data" --target "example.com"
+```
+
 Microsoft Edge on Windows:
 
 ```powershell
@@ -105,7 +111,7 @@ BTForensic --user-data "C:\Cases\user01\Chrome\User Data" --target "example.com"
 
 - `--user-data`: required path to the collected Chromium browser `User Data` directory.
 - `--target`: required domain or URL to investigate.
-- `--output`: required report output directory.
+- `--output`: optional report output directory. If omitted, BTForensic prints the most relevant findings directly in the terminal, including probable caller/origin when available.
 - `--profile`: optional profile name, such as `Default`, `Profile 1`, or `Profile 2`.
 - `--window-minutes`: optional time window for correlating related visits and downloads. Default: `30`.
 - `--verbose`: enables detailed logs.
