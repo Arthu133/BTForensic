@@ -142,6 +142,12 @@ case_example/
 - Network text artifacts: `.tmp`, `.log`, `.json`, `.ldb`, `.txt`, and `.dat` files under profile, `Network`, `Network Logs`, `Service Worker`, and `Cache`.
 - Origins/referrers/initiators: direct target calls, callers of the target, third-party domains in the time window, possible redirects.
 
+## Network Origin Investigation Method
+
+For `.tmp` and other textual network artifacts, BTForensic searches records that contain the target domain or URL. When a matching record also includes fields such as `anonymization_key` or `network_isolation_key`, the tool attempts to decode that payload using URL decoding, JSON string unescaping, and Base64 decoding.
+
+Decoded anonymization payloads are searched for embedded URLs and domains. URLs that are not the target are reported as `inferred_origins_from_anonymization`, which helps identify the page, top-frame site, frame site, or isolation context that caused the target URL to be called. Sensitive values are still redacted and raw cookie/header secrets are not exported.
+
 ## Tests
 
 ```powershell

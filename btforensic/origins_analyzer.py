@@ -33,7 +33,9 @@ def build_origins_and_referrers(target: TargetInfo, related_urls: list[dict], ne
             referrers[referrer] += 1
         if initiator:
             initiators[initiator] += 1
-        for candidate in (url, origin, referrer, initiator):
+        for inferred_origin in row.get("inferred_origins_from_anonymization", []) or []:
+            initiators[f"anonymization:{inferred_origin}"] += 1
+        for candidate in (url, origin, referrer, initiator, *(row.get("inferred_origins_from_anonymization", []) or [])):
             host = extract_host(candidate)
             if host and not url_matches_target(candidate, target):
                 third_party[host] += 1

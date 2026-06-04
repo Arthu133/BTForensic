@@ -7,7 +7,7 @@ from pathlib import Path
 from urllib.parse import unquote
 
 from .anonymization_decoder import decode_anonymization_payload
-from .domain_utils import TargetInfo
+from .domain_utils import TargetInfo, url_matches_target
 from .safe_redaction import mask_url_query, redact_headers
 
 
@@ -71,22 +71,50 @@ def _regex_extract(line: str) -> dict:
     }
 
 
+def _safe_decoded_items(decoded: dict) -> dict:
+    safe_decoded = [
+        item for item in decoded["decoded"]
+        if not any(word in item.lower() for word in SENSITIVE_WORDS)
+    ]
+    return {**decoded, "decoded": safe_decoded}
+
+
 def _extract_anonymization(line: str) -> list[dict]:
     results = []
     patterns = (
-        r"anonymization[_-]?key[\"'\s:=]+([^,\s\"']+)",
-        r"network[_\s-]?isolation[_\s-]?key[\"'\s:=]+([^,\s\"']+)",
+        r"(?P<label>anonymization[_-]?key)[\"'\s:=]+(?P<value>\"(?:\\.|[^\"])+\"|'(?:\\.|[^'])+'|[^,\s}\]]+)",
+        r"(?P<label>network[_\s-]?isolation[_\s-]?key)[\"'\s:=]+(?P<value>\"(?:\\.|[^\"])+\"|'(?:\\.|[^'])+'|[^,\s}\]]+)",
     )
     for pattern in patterns:
         for match in re.finditer(pattern, line, re.IGNORECASE):
-            value = unquote(match.group(1).strip())
+            value = match.group("value").strip().strip("\"'")
+            value = unquote(value)
             decoded = decode_anonymization_payload(value)
-            safe_decoded = [
-                item for item in decoded["decoded"]
-                if not any(word in item.lower() for word in SENSITIVE_WORDS)
-            ]
-            results.append({**decoded, "decoded": safe_decoded})
+            results.append({"field": match.group("label"), **_safe_decoded_items(decoded)})
     return results
+
+
+def _flatten_anonymization_urls(records: list[dict]) -> list[str]:
+    urls = []
+    seen = set()
+    for record in records:
+        for url in record.get("extracted_urls", []):
+            if url not in seen:
+                seen.add(url)
+                urls.append(mask_url_query(url))
+    return urls
+
+
+def _infer_origins_from_anonymization(records: list[dict], target: TargetInfo) -> list[str]:
+    origins = []
+    seen = set()
+    for url in _flatten_anonymization_urls(records):
+        if url_matches_target(url, target):
+            continue
+        if url not in seen:
+            seen.add(url)
+            origins.append(url)
+    return origins
 
 
 def analyze_network_logs(profile_name: str, profile_path: Path, target: TargetInfo, logger: logging.Logger) -> dict:
@@ -107,6 +135,7 @@ def analyze_network_logs(profile_name: str, profile_path: Path, target: TargetIn
                         regex_fields = _regex_extract(line)
                         fields = {key: fields.get(key) or regex_fields.get(key) for key in regex_fields}
                         fields["headers"] = redact_headers(fields.get("headers"))
+                        anonymization = _extract_anonymization(line)
                         matches.append(
                             {
                                 "profile": profile_name,
@@ -119,7 +148,9 @@ def analyze_network_logs(profile_name: str, profile_path: Path, target: TargetIn
                                 "method": fields.get("method"),
                                 "status_code": fields.get("status_code"),
                                 "timestamp": fields.get("timestamp"),
-                                "anonymization": _extract_anonymization(line),
+                                "anonymization": anonymization,
+                                "anonymization_urls": _flatten_anonymization_urls(anonymization),
+                                "inferred_origins_from_anonymization": _infer_origins_from_anonymization(anonymization, target),
                                 "headers": fields.get("headers") or {},
                                 "snippet": line.strip()[:500],
                             }
