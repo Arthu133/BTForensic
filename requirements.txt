@@ -1,0 +1,2 @@
+# BTForensic uses Python standard library modules only.
+# Optional external tool: jq, used when installed for JSON normalization.
