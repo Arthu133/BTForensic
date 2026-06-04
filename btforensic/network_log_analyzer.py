@@ -11,44 +11,22 @@ from .domain_utils import TargetInfo, url_matches_target
 from .safe_redaction import mask_url_query, redact_headers
 
 
-TEXT_EXTENSIONS = {".tmp", ".log", ".json", ".ldb", ".txt", ".dat"}
-SCAN_DIRS = ("Network", "Network Logs", "Service Worker", "Cache")
 MAX_FILE_SIZE = 25 * 1024 * 1024
 SENSITIVE_WORDS = ("cookie", "authorization", "token", "secret", "session")
 
 
 def _select_string_command(network_dir: Path, target: TargetInfo) -> str:
     pattern = target.normalized_url or target.raw or target.domain
-    return f'Select-String -Path "{network_dir}\\*" -Pattern "{pattern}" -List | % Path'
+    return f'Select-String -Path "{network_dir}\\*.tmp" -Pattern "{pattern}" -List | % Path'
 
 
 def _candidate_files(profile_path: Path):
-    seen = set()
-
-    primary_network_dirs = [profile_path / "Network"]
-    user_data_network_dir = profile_path.parent / "Network"
-    if user_data_network_dir not in primary_network_dirs:
-        primary_network_dirs.append(user_data_network_dir)
-
-    for network_dir in primary_network_dirs:
-        if not network_dir.exists():
-            continue
-        for path in sorted(network_dir.iterdir()):
-            if path.is_file() and path.stat().st_size <= MAX_FILE_SIZE:
-                seen.add(path)
-                yield path, "primary_network_directory_scan", network_dir
-
-    bases = [profile_path]
-    bases.extend(profile_path / name for name in SCAN_DIRS if (profile_path / name).exists())
-    for base in bases:
-        if not base.exists():
-            continue
-        for path in base.rglob("*"):
-            if path in seen or not path.is_file():
-                continue
-            seen.add(path)
-            if path.suffix.lower() in TEXT_EXTENSIONS and path.stat().st_size <= MAX_FILE_SIZE:
-                yield path, "fallback_text_artifact_scan", None
+    network_dir = profile_path / "Network"
+    if not network_dir.exists():
+        return
+    for path in sorted(network_dir.glob("*.tmp")):
+        if path.is_file() and path.stat().st_size <= MAX_FILE_SIZE:
+            yield path, "primary_network_tmp_select_string", network_dir
 
 
 def _extract_json_fields(line: str) -> dict:
@@ -234,10 +212,8 @@ def _infer_origins_from_anonymization(records: list[dict], target: TargetInfo) -
 def analyze_network_logs(profile_name: str, profile_path: Path, target: TargetInfo, logger: logging.Logger) -> dict:
     scan_summary = {
         "profile": profile_name,
-        "primary_network_files_scanned": 0,
-        "fallback_text_files_scanned": 0,
-        "primary_network_files_with_target": 0,
-        "fallback_text_files_with_target": 0,
+        "primary_tmp_files_scanned": 0,
+        "primary_tmp_files_with_target": 0,
         "files_with_target": [],
     }
     result = {"network_log_matches": [], "errors": [], "scan_summary": scan_summary}
@@ -248,24 +224,18 @@ def analyze_network_logs(profile_name: str, profile_path: Path, target: TargetIn
             target_texts.add(target.normalized_url.lower())
         for path, discovery_method, network_dir in _candidate_files(profile_path):
             try:
-                if discovery_method == "primary_network_directory_scan":
-                    scan_summary["primary_network_files_scanned"] += 1
-                else:
-                    scan_summary["fallback_text_files_scanned"] += 1
+                scan_summary["primary_tmp_files_scanned"] += 1
 
                 raw = path.read_text(encoding="utf-8", errors="ignore")
                 if not any(text and text in raw.lower() for text in target_texts):
                     continue
 
-                if discovery_method == "primary_network_directory_scan":
-                    scan_summary["primary_network_files_with_target"] += 1
-                else:
-                    scan_summary["fallback_text_files_with_target"] += 1
+                scan_summary["primary_tmp_files_with_target"] += 1
                 scan_summary["files_with_target"].append(str(path))
 
                 select_string_equivalent = (
                     _select_string_command(network_dir, target)
-                    if discovery_method == "primary_network_directory_scan" and network_dir is not None
+                    if discovery_method == "primary_network_tmp_select_string" and network_dir is not None
                     else None
                 )
 

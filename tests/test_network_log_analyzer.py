@@ -32,9 +32,10 @@ class NetworkLogAnalyzerTest(unittest.TestCase):
 
             self.assertEqual(len(result["network_log_matches"]), 1)
             match = result["network_log_matches"][0]
-            self.assertEqual(match["discovery_method"], "primary_network_directory_scan")
+            self.assertEqual(match["discovery_method"], "primary_network_tmp_select_string")
             self.assertIn("Select-String", match["select_string_equivalent"])
             self.assertIn(str(network), match["select_string_equivalent"])
+            self.assertIn("*.tmp", match["select_string_equivalent"])
             self.assertIn("linkedin.com", match["select_string_equivalent"])
             self.assertIn("https://origin.example", match["inferred_origins_from_anonymization"])
             self.assertIn("https://linkedin.com", match["anonymization_urls"])
@@ -71,11 +72,11 @@ class NetworkLogAnalyzerTest(unittest.TestCase):
                 if item.get("source") == "net.http_server_properties.servers"
             ]
             self.assertEqual(len(structured), 1)
-            self.assertEqual(structured[0]["discovery_method"], "primary_network_directory_scan")
+            self.assertEqual(structured[0]["discovery_method"], "primary_network_tmp_select_string")
             self.assertEqual(structured[0]["matched_server"], "https://linkedin.com")
             self.assertIn("https://origin.example", structured[0]["inferred_origins_from_anonymization"])
 
-    def test_user_data_network_tmp_path_is_also_primary(self):
+    def test_user_data_network_tmp_path_is_not_scanned(self):
         with tempfile.TemporaryDirectory() as tmp:
             user_data = Path(tmp) / "User Data"
             profile = user_data / "Default"
@@ -91,12 +92,9 @@ class NetworkLogAnalyzerTest(unittest.TestCase):
                 logging.getLogger("test"),
             )
 
-            self.assertEqual(len(result["network_log_matches"]), 1)
-            match = result["network_log_matches"][0]
-            self.assertEqual(match["discovery_method"], "primary_network_directory_scan")
-            self.assertIn(str(network), match["select_string_equivalent"])
+            self.assertEqual(len(result["network_log_matches"]), 0)
 
-    def test_non_tmp_network_file_is_scanned_as_primary(self):
+    def test_non_tmp_network_file_is_not_scanned(self):
         with tempfile.TemporaryDirectory() as tmp:
             profile = Path(tmp) / "Default"
             network = profile / "Network"
@@ -110,10 +108,7 @@ class NetworkLogAnalyzerTest(unittest.TestCase):
                 logging.getLogger("test"),
             )
 
-            self.assertEqual(len(result["network_log_matches"]), 1)
-            match = result["network_log_matches"][0]
-            self.assertEqual(match["discovery_method"], "primary_network_directory_scan")
-            self.assertIn("Network Persistent State", match["file"])
+            self.assertEqual(len(result["network_log_matches"]), 0)
 
 
 if __name__ == "__main__":
