@@ -41,7 +41,8 @@ class DefenderHuntingTest(unittest.TestCase):
 
         self.assertEqual(summary["total_rows"], 1)
         self.assertEqual(summary["target_matching_rows"], 1)
-        self.assertEqual(summary["top_devices"][0]["value"], "HOST01")
+        self.assertTrue(summary["top_devices"][0]["value"].startswith("[DEVICE_REDACTED:"))
+        self.assertNotIn("HOST01", str(summary))
         self.assertIn("token=%5BREDACTED%5D", summary["top_remote_urls"][0]["value"])
         self.assertIn("token=%5BREDACTED%5D", summary["sample_matching_records"][0]["InitiatingProcessCommandLine"])
 

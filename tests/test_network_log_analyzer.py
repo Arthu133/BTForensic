@@ -39,6 +39,7 @@ class NetworkLogAnalyzerTest(unittest.TestCase):
             self.assertIn("linkedin.com", match["select_string_equivalent"])
             self.assertIn("https://origin.example", match["inferred_origins_from_anonymization"])
             self.assertIn("https://linkedin.com", match["anonymization_urls"])
+            self.assertEqual(match["snippet"], "[REDACTED_BY_PRIVACY_STRICT]")
 
     def test_http_server_properties_tmp_matches_jq_style_server_filter(self):
         with tempfile.TemporaryDirectory() as tmp:

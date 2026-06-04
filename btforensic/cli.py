@@ -17,7 +17,7 @@ from .logging_config import setup_logging
 from .network_log_analyzer import analyze_network_logs
 from .origins_analyzer import build_origins_and_referrers
 from .report_writer import write_report
-from .safe_redaction import mask_url_query, redact_headers, sha256_value
+from .safe_redaction import PRIVACY_CHOICES, PRIVACY_STRICT, sanitize_for_privacy
 from .sqlite_exporter import write_json
 from .summary_builder import build_case_summary
 from .timeline_builder import build_timeline
@@ -54,34 +54,19 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--defender-device", help="Optional DeviceName filter to include in generated Defender Advanced Hunting KQL.")
     parser.add_argument("--defender-account", help="Optional account filter to include in generated Defender Advanced Hunting KQL.")
     parser.add_argument("--defender-kql-output", help="Optional path to write Defender Advanced Hunting KQL without using --output.")
+    parser.add_argument(
+        "--privacy",
+        choices=PRIVACY_CHOICES,
+        default=PRIVACY_STRICT,
+        help="Output privacy mode. strict redacts snippets, local paths, MDE identities, raw bookmarks, and secret-like text. Default: strict.",
+    )
     parser.add_argument("--verbose", action="store_true", help="Enable detailed logging.")
     parser.add_argument("--version", action="version", version=f"BTForensic {__version__}")
     return parser
 
 
-def _sanitize_json(value):
-    if isinstance(value, bytes):
-        return {
-            "redacted_bytes": True,
-            "size": len(value),
-            "sha256": sha256_value(value),
-        }
-    if isinstance(value, list):
-        return [_sanitize_json(item) for item in value]
-    if isinstance(value, dict):
-        sanitized = {}
-        for key, item in value.items():
-            key_lower = str(key).lower()
-            if key_lower in {"headers", "request_headers", "response_headers"} and isinstance(item, dict):
-                sanitized[key] = redact_headers(item)
-            elif key_lower in {"url", "referrer", "referer", "origin", "initiator", "tab_url", "site_url"} and isinstance(item, str):
-                sanitized[key] = mask_url_query(item)
-            elif key_lower in {"value", "encrypted_value", "cookie", "authorization"}:
-                sanitized[key] = "[REDACTED]"
-            else:
-                sanitized[key] = _sanitize_json(item)
-        return sanitized
-    return value
+def _sanitize_json(value, privacy: str = PRIVACY_STRICT):
+    return sanitize_for_privacy(value, privacy=privacy)
 
 
 def _visit_windows(visits: list[dict], window_minutes: int) -> list[tuple]:
@@ -101,6 +86,7 @@ def _print_terminal_summary(context: dict) -> None:
     print("===================")
     print(f"Target: {summary['target']} ({summary['target_domain']})")
     print(f"Profiles: {', '.join(summary['profiles']) or 'None'}")
+    print(f"Privacy mode: {context.get('privacy_mode', PRIVACY_STRICT)}")
     print(f"First seen: {summary['first_seen_utc'] or 'Not found'}")
     print(f"Last seen: {summary['last_seen_utc'] or 'Not found'}")
     print()
@@ -168,8 +154,9 @@ def run(args: argparse.Namespace) -> int:
         for directory in (artifacts_dir, raw_dir, output_dir / "logs"):
             directory.mkdir(parents=True, exist_ok=True)
 
-    logger = setup_logging(output_dir, args.verbose)
+    logger = setup_logging(output_dir, args.verbose, privacy=args.privacy)
     logger.info("BTForensic started")
+    logger.info("Privacy mode: %s", args.privacy)
 
     user_data = Path(args.user_data).expanduser()
     if not user_data.exists():
@@ -224,7 +211,7 @@ def run(args: argparse.Namespace) -> int:
         errors.extend(cookies["errors"])
         logger.info("Cookie matches: %s", len(cookies["cookies_matches"]))
 
-        bookmarks = analyze_bookmarks(profile.name, profile.path, target, raw_dir, logger)
+        bookmarks = analyze_bookmarks(profile.name, profile.path, target, raw_dir, logger, privacy=args.privacy)
         bookmarks_matches.extend(bookmarks["bookmarks_matches"])
         if bookmarks["raw_bookmarks"]:
             raw_bookmarks.append(bookmarks["raw_bookmarks"])
@@ -237,7 +224,7 @@ def run(args: argparse.Namespace) -> int:
         errors.extend(downloads["errors"])
         logger.info("Download matches in time window: %s", len(downloads["downloads_matches"]))
 
-        network = analyze_network_logs(profile.name, profile.path, target, logger)
+        network = analyze_network_logs(profile.name, profile.path, target, logger, privacy=args.privacy)
         network_log_matches.extend(network["network_log_matches"])
         network_scan_summaries.append(network.get("scan_summary", {}))
         errors.extend(network["errors"])
@@ -254,6 +241,7 @@ def run(args: argparse.Namespace) -> int:
             input_path=args.defender_input,
             device_name=args.defender_device,
             account_name=args.defender_account,
+            privacy=args.privacy,
         )
         if args.defender_input:
             logger.info("Defender input parsed: %s", args.defender_input)
@@ -268,6 +256,7 @@ def run(args: argparse.Namespace) -> int:
             input_path=None,
             device_name=args.defender_device,
             account_name=args.defender_account,
+            privacy=args.privacy,
         )
 
     defender_kql_output_path = None
@@ -298,18 +287,19 @@ def run(args: argparse.Namespace) -> int:
     context = {
         "target_raw": target.raw,
         "target_domain": target.domain,
+        "privacy_mode": args.privacy,
         "profiles": [profile.name for profile in profiles],
         "history_summaries": history_summaries,
-        "history_matches": _sanitize_json(history_matches),
-        "visits_matches": _sanitize_json(visits_matches),
+        "history_matches": _sanitize_json(history_matches, args.privacy),
+        "visits_matches": _sanitize_json(visits_matches, args.privacy),
         "cookies_matches": cookies_matches,
-        "bookmarks_matches": _sanitize_json(bookmarks_matches),
-        "downloads_matches": _sanitize_json(downloads_matches),
-        "network_log_matches": _sanitize_json(network_log_matches),
-        "network_scan_summaries": _sanitize_json(network_scan_summaries),
-        "origins_and_referrers": _sanitize_json(origins),
-        "timeline": _sanitize_json(timeline),
-        "defender": _sanitize_json(defender),
+        "bookmarks_matches": _sanitize_json(bookmarks_matches, args.privacy),
+        "downloads_matches": _sanitize_json(downloads_matches, args.privacy),
+        "network_log_matches": _sanitize_json(network_log_matches, args.privacy),
+        "network_scan_summaries": _sanitize_json(network_scan_summaries, args.privacy),
+        "origins_and_referrers": _sanitize_json(origins, args.privacy),
+        "timeline": _sanitize_json(timeline, args.privacy),
+        "defender": _sanitize_json(defender, args.privacy),
         "errors": errors,
         "output_dir": str(output_dir) if output_dir else None,
         "defender_kql_output": defender_kql_output_path,
@@ -317,10 +307,10 @@ def run(args: argparse.Namespace) -> int:
 
     if output_dir:
         for filename, payload in artifact_payloads.items():
-            write_json(artifacts_dir / filename, _sanitize_json(payload))
+            write_json(artifacts_dir / filename, _sanitize_json(payload, args.privacy))
         for filename, payload in raw_payloads.items():
-            write_json(raw_dir / filename, _sanitize_json(payload))
-        write_json(output_dir / "timeline.json", _sanitize_json(timeline))
+            write_json(raw_dir / filename, _sanitize_json(payload, args.privacy))
+        write_json(output_dir / "timeline.json", _sanitize_json(timeline, args.privacy))
         (artifacts_dir / "defender_hunting_queries.kql").write_text(defender.get("kql_queries", "") if defender else "", encoding="utf-8")
         report_path = output_dir / "BTForensic_report.md"
         write_report(report_path, context)

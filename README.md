@@ -13,6 +13,7 @@ The primary use case is Windows incident response: collect a user's browser fold
 - Cookie output includes metadata and `value_sha256` only. Encrypted cookie bytes from `encrypted_value` are hashed when a plaintext value is unavailable.
 - Sensitive headers such as `Cookie`, `Authorization`, `Set-Cookie`, and token-like headers are redacted.
 - Sensitive query parameters such as `token`, `session`, `auth`, `key`, `password`, and `code` are masked.
+- Default privacy mode is `strict`, which redacts raw snippets, local filesystem paths, Microsoft Defender device/account identities, raw bookmark exports, and secret-like text patterns.
 - Microsoft Defender for Endpoint correlation is manual and offline: BTForensic generates Advanced Hunting KQL and can parse exported CSV/JSON results, but it never connects to Defender APIs or asks for credentials.
 - Missing artifacts are logged as warnings and do not stop the analysis.
 
@@ -109,6 +110,18 @@ Use a wider correlation window:
 BTForensic --user-data "C:\Cases\user01\Chrome\User Data" --target "example.com" --output ".\case_user01" --window-minutes 60 --verbose
 ```
 
+Use the default strict privacy mode for reports that may be shared:
+
+```powershell
+BTForensic --user-data "C:\Cases\user01\Chrome\User Data" --target "example.com" --output ".\case_user01" --privacy strict
+```
+
+Use standard privacy only for controlled internal analysis where full local paths and snippets are acceptable:
+
+```powershell
+BTForensic --user-data "C:\Cases\user01\Chrome\User Data" --target "example.com" --output ".\case_user01_internal" --privacy standard
+```
+
 Generate Microsoft Defender for Endpoint Advanced Hunting KQL during the browser analysis:
 
 ```powershell
@@ -144,6 +157,7 @@ BTForensic --user-data "C:\Cases\user01\Edge\User Data" --target "example.com" -
 - `--defender-device`: optional `DeviceName` filter inserted into the generated Defender KQL.
 - `--defender-account`: optional account filter inserted into the generated Defender KQL.
 - `--defender-kql-output`: optional path to write the Defender KQL pack without a full `--output` folder.
+- `--privacy`: output privacy mode, either `strict` or `standard`. Default: `strict`.
 - `--verbose`: enables detailed logs.
 
 ## Output Structure
@@ -231,6 +245,8 @@ Useful columns include:
 
 BTForensic summarizes this export into devices, accounts, process names, parent processes, remote URLs, remote IPs, action types, first/last Defender timestamps, and target-matching rows. URL query strings and token-like command-line arguments are masked before being written to BTForensic artifacts.
 
+In `strict` privacy mode, Defender device and account values are replaced with stable redacted hashes, such as `[DEVICE_REDACTED:...]` and `[ACCOUNT_REDACTED:...]`. This keeps correlation possible without exposing hostnames, UPNs, account names, or device IDs in exported reports.
+
 ## Network Origin Investigation Method
 
 For network origin analysis, BTForensic follows the SOC workflow below:
@@ -257,6 +273,25 @@ For network origin analysis, BTForensic follows the SOC workflow below:
 5. Report non-target URLs found inside the decoded payload as `inferred_origins_from_anonymization`.
 
 This helps identify the page, top-frame site, frame site, or isolation context that caused the target URL to be called. Sensitive values are still redacted and raw cookie/header secrets are not exported.
+
+## Privacy Modes
+
+BTForensic uses `--privacy strict` by default.
+
+Strict mode:
+
+- Redacts raw `.tmp` line snippets as `[REDACTED_BY_PRIVACY_STRICT]`.
+- Redacts local filesystem paths while keeping a stable hash and filename when possible.
+- Redacts Microsoft Defender for Endpoint device and account identities with stable hashes.
+- Writes only a redacted bookmark summary instead of exporting the full raw bookmark tree.
+- Masks sensitive query parameters in URLs.
+- Redacts generic secret-like text patterns, including bearer/basic credentials, JWT-like values, and token/session/password-style assignments.
+
+Standard mode:
+
+- Keeps more local forensic context, such as raw snippets and full normalized bookmark JSON.
+- Still hashes cookies and redacts sensitive HTTP headers.
+- Should be used only for controlled internal analysis outputs.
 
 ## Tests
 

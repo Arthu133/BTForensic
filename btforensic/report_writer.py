@@ -40,6 +40,7 @@ def write_report(output_path: Path, context: dict) -> None:
         f"- Target: `{context.get('target_raw')}`",
         f"- Normalized domain: `{context.get('target_domain')}`",
         f"- Profiles analyzed: {profiles}",
+        f"- Privacy mode: `{context.get('privacy_mode', 'strict')}`",
         f"- First seen: {first_seen or 'Not found'}",
         f"- Last seen: {last_seen or 'Not found'}",
         f"- Access count: {access_count}",

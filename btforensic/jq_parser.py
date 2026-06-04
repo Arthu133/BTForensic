@@ -24,7 +24,7 @@ def normalize_json_file(input_path: Path, output_path: Path, logger: logging.Log
     elif logger:
         logger.warning("jq not found; using Python JSON fallback")
 
-    with input_path.open("r", encoding="utf-8") as src:
+    with input_path.open("r", encoding="utf-8-sig") as src:
         data = json.load(src)
     output_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
     return data

@@ -9,7 +9,13 @@ from pathlib import Path
 from typing import Any
 
 from .domain_utils import TargetInfo
-from .safe_redaction import mask_url_query
+from .safe_redaction import (
+    PRIVACY_STRICT,
+    mask_url_query,
+    redact_identity_value,
+    redact_local_path,
+    redact_sensitive_text,
+)
 
 
 MDE_MODE = "manual_advanced_hunting_export_no_api"
@@ -68,20 +74,34 @@ def _history_time_bounds(history_summaries: list[dict], window_minutes: int) -> 
     return min(first_values) - delta, max(last_values) + delta
 
 
-def _mask_text(value: str) -> str:
+def _mask_text(value: str, privacy: str = PRIVACY_STRICT) -> str:
     masked = _URL_RE.sub(lambda match: mask_url_query(match.group(0)) or match.group(0), value)
-    return _SENSITIVE_ARGUMENT_RE.sub(lambda match: f"{match.group(1)}[REDACTED]", masked)
+    masked = _SENSITIVE_ARGUMENT_RE.sub(lambda match: f"{match.group(1)}[REDACTED]", masked)
+    return redact_sensitive_text(masked, redact_paths=privacy == PRIVACY_STRICT) or masked
 
 
-def sanitize_mde_record(record: dict[str, Any]) -> dict[str, Any]:
+def _identity_label(field: str) -> str | None:
+    field_lower = field.lower()
+    if "device" in field_lower:
+        return "DEVICE"
+    if "account" in field_lower or field_lower in {"sid", "accountsid"}:
+        return "ACCOUNT"
+    return None
+
+
+def sanitize_mde_record(record: dict[str, Any], privacy: str = PRIVACY_STRICT) -> dict[str, Any]:
     sanitized = {}
     for key, value in record.items():
         key_text = str(key)
         key_lower = key_text.lower()
         if any(part in key_lower for part in _SENSITIVE_FIELD_PARTS):
             sanitized[key_text] = "[REDACTED]"
+        elif privacy == PRIVACY_STRICT and _identity_label(key_text) and isinstance(value, str):
+            sanitized[key_text] = redact_identity_value(value, _identity_label(key_text) or "IDENTITY")
+        elif privacy == PRIVACY_STRICT and key_lower in {"folderpath", "previousfolderpath", "source_file"} and isinstance(value, str):
+            sanitized[key_text] = redact_local_path(value)
         elif isinstance(value, str):
-            sanitized[key_text] = _mask_text(value)
+            sanitized[key_text] = _mask_text(value, privacy)
         else:
             sanitized[key_text] = value
     return sanitized
@@ -104,7 +124,7 @@ def _read_csv_records(path: Path) -> list[dict[str, Any]]:
         return [dict(row) for row in csv.DictReader(handle)]
 
 
-def load_defender_input(path: Path, target: TargetInfo) -> dict[str, Any]:
+def load_defender_input(path: Path, target: TargetInfo, privacy: str = PRIVACY_STRICT) -> dict[str, Any]:
     path = Path(path).expanduser()
     if not path.exists():
         raise FileNotFoundError(f"Defender input file not found: {path}")
@@ -135,14 +155,17 @@ def load_defender_input(path: Path, target: TargetInfo) -> dict[str, Any]:
             for field in fields:
                 value = row.get(field)
                 if value not in (None, ""):
-                    counter[_mask_text(str(value))] += 1
+                    label = _identity_label(field) if privacy == PRIVACY_STRICT else None
+                    safe_value = redact_identity_value(str(value), label) if label else _mask_text(str(value), privacy)
+                    counter[safe_value] += 1
                     break
         return [{"value": value, "count": count} for value, count in counter.most_common(limit)]
 
-    sample_records = [sanitize_mde_record(row) for row in matching_rows[:25]]
+    sample_records = [sanitize_mde_record(row, privacy=privacy) for row in matching_rows[:25]]
     return {
         "mode": MDE_MODE,
-        "source_file": str(path),
+        "source_file": redact_local_path(str(path)) if privacy == PRIVACY_STRICT else str(path),
+        "privacy": privacy,
         "input_format": input_format,
         "total_rows": len(rows),
         "target_matching_rows": len(matching_rows),
@@ -309,8 +332,9 @@ def build_defender_context(
     input_path: str | None = None,
     device_name: str | None = None,
     account_name: str | None = None,
+    privacy: str = PRIVACY_STRICT,
 ) -> dict[str, Any]:
-    summary = load_defender_input(Path(input_path), target) if input_path else None
+    summary = load_defender_input(Path(input_path), target, privacy=privacy) if input_path else None
     kql = build_defender_kql(target, history_summaries, window_minutes, device_name, account_name)
     return {
         "mode": MDE_MODE,

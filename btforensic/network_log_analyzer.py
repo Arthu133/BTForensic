@@ -8,7 +8,7 @@ from urllib.parse import unquote
 
 from .anonymization_decoder import decode_anonymization_payload
 from .domain_utils import TargetInfo, url_matches_target
-from .safe_redaction import mask_url_query, redact_headers
+from .safe_redaction import PRIVACY_STRICT, REDACTED_STRICT, mask_url_query, redact_headers, redact_sensitive_text
 
 
 MAX_FILE_SIZE = 25 * 1024 * 1024
@@ -90,6 +90,7 @@ def _http_server_property_matches(
     target: TargetInfo,
     discovery_method: str,
     select_string_equivalent: str | None,
+    privacy: str,
 ) -> list[dict]:
     obj = _load_json_lenient(raw)
     if not isinstance(obj, dict):
@@ -114,7 +115,7 @@ def _http_server_property_matches(
         anonymization = []
         for field_path, value in _walk_anonymization_values(server_obj):
             decoded = decode_anonymization_payload(unquote(value))
-            anonymization.append({"field": field_path, **_safe_decoded_items(decoded)})
+            anonymization.append({"field": field_path, **_safe_decoded_items(decoded, privacy)})
 
         matches.append(
             {
@@ -138,7 +139,7 @@ def _http_server_property_matches(
                 "anonymization_urls": _flatten_anonymization_urls(anonymization),
                 "inferred_origins_from_anonymization": _infer_origins_from_anonymization(anonymization, target),
                 "headers": {},
-                "snippet": json.dumps({"server": server, "keys": sorted(server_obj.keys())}, ensure_ascii=False)[:500],
+                "snippet": REDACTED_STRICT if privacy == PRIVACY_STRICT else json.dumps({"server": server, "keys": sorted(server_obj.keys())}, ensure_ascii=False)[:500],
             }
         )
     return matches
@@ -163,15 +164,15 @@ def _regex_extract(line: str) -> dict:
     }
 
 
-def _safe_decoded_items(decoded: dict) -> dict:
+def _safe_decoded_items(decoded: dict, privacy: str) -> dict:
     safe_decoded = [
-        item for item in decoded["decoded"]
+        redact_sensitive_text(item, redact_paths=privacy == PRIVACY_STRICT) for item in decoded["decoded"]
         if not any(word in item.lower() for word in SENSITIVE_WORDS)
     ]
     return {**decoded, "decoded": safe_decoded}
 
 
-def _extract_anonymization(line: str) -> list[dict]:
+def _extract_anonymization(line: str, privacy: str) -> list[dict]:
     results = []
     patterns = (
         r"(?P<label>anonymization[_-]?key)[\"'\s:=]+(?P<value>\"(?:\\.|[^\"])+\"|'(?:\\.|[^'])+'|[^,\s}\]]+)",
@@ -182,7 +183,7 @@ def _extract_anonymization(line: str) -> list[dict]:
             value = match.group("value").strip().strip("\"'")
             value = unquote(value)
             decoded = decode_anonymization_payload(value)
-            results.append({"field": match.group("label"), **_safe_decoded_items(decoded)})
+            results.append({"field": match.group("label"), **_safe_decoded_items(decoded, privacy)})
     return results
 
 
@@ -209,7 +210,7 @@ def _infer_origins_from_anonymization(records: list[dict], target: TargetInfo) -
     return origins
 
 
-def analyze_network_logs(profile_name: str, profile_path: Path, target: TargetInfo, logger: logging.Logger) -> dict:
+def analyze_network_logs(profile_name: str, profile_path: Path, target: TargetInfo, logger: logging.Logger, privacy: str = PRIVACY_STRICT) -> dict:
     scan_summary = {
         "profile": profile_name,
         "primary_tmp_files_scanned": 0,
@@ -247,6 +248,7 @@ def analyze_network_logs(profile_name: str, profile_path: Path, target: TargetIn
                         target,
                         discovery_method,
                         select_string_equivalent,
+                        privacy,
                     )
                 )
 
@@ -258,7 +260,8 @@ def analyze_network_logs(profile_name: str, profile_path: Path, target: TargetIn
                     regex_fields = _regex_extract(line)
                     fields = {key: fields.get(key) or regex_fields.get(key) for key in regex_fields}
                     fields["headers"] = redact_headers(fields.get("headers"))
-                    anonymization = _extract_anonymization(line)
+                    anonymization = _extract_anonymization(line, privacy)
+                    snippet = REDACTED_STRICT if privacy == PRIVACY_STRICT else redact_sensitive_text(line.strip()[:500], redact_paths=False)
                     matches.append(
                         {
                             "profile": profile_name,
@@ -278,7 +281,7 @@ def analyze_network_logs(profile_name: str, profile_path: Path, target: TargetIn
                             "anonymization_urls": _flatten_anonymization_urls(anonymization),
                             "inferred_origins_from_anonymization": _infer_origins_from_anonymization(anonymization, target),
                             "headers": fields.get("headers") or {},
-                            "snippet": line.strip()[:500],
+                            "snippet": snippet,
                         }
                     )
             except Exception as exc:
