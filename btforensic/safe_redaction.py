@@ -69,7 +69,8 @@ def mask_url_query(url: str | None) -> str | None:
 def safe_cookie_record(row: dict) -> dict:
     value = row.get("value")
     encrypted_value = row.get("encrypted_value")
-    value_hash = sha256_value(value if value not in (None, "") else encrypted_value)
+    hash_source = value if value not in (None, "", b"") else encrypted_value
+    value_hash = sha256_value(hash_source)
     return {
         "host_key": row.get("host_key"),
         "name": row.get("name"),
@@ -82,4 +83,5 @@ def safe_cookie_record(row: dict) -> dict:
         "samesite": row.get("samesite"),
         "source_scheme": row.get("source_scheme"),
         "value_sha256": value_hash,
+        "value_hash_source": "value" if value not in (None, "", b"") else "encrypted_value",
     }

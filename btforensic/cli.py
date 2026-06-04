@@ -17,7 +17,7 @@ from .logging_config import setup_logging
 from .network_log_analyzer import analyze_network_logs
 from .origins_analyzer import build_origins_and_referrers
 from .report_writer import write_report
-from .safe_redaction import mask_url_query, redact_headers
+from .safe_redaction import mask_url_query, redact_headers, sha256_value
 from .sqlite_exporter import write_json
 from .timeline_builder import build_timeline
 from .timestamp_utils import chrome_time_to_datetime
@@ -54,6 +54,12 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _sanitize_json(value):
+    if isinstance(value, bytes):
+        return {
+            "redacted_bytes": True,
+            "size": len(value),
+            "sha256": sha256_value(value),
+        }
     if isinstance(value, list):
         return [_sanitize_json(item) for item in value]
     if isinstance(value, dict):

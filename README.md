@@ -1,16 +1,16 @@
 # BTForensic
 
-BTForensic is a defensive, read-only Linux command-line tool for local forensic analysis of Chromium-based browser artifacts, including Google Chrome, Chromium, Brave, and Microsoft Edge.
+BTForensic is a defensive, read-only command-line tool for SOC and DFIR analysis of copied Chromium-based browser `User Data` folders, including Google Chrome, Microsoft Edge, Chromium, and Brave.
 
-It receives a browser `User Data` directory and a target domain or URL, then produces structured JSON artifacts, a consolidated timeline, logs, and a Markdown report. Original browser files are never modified: SQLite databases are copied to a temporary directory before being opened in read-only mode.
+The primary use case is Windows incident response: collect a user's browser folder, such as `C:\Users\username\AppData\Local\Google\Chrome\User Data` or `C:\Users\username\AppData\Local\Microsoft\Edge\User Data`, then run BTForensic against that copied folder from a terminal. Original browser files are never modified: SQLite databases are copied to a temporary directory before being opened in read-only mode.
 
 ## Safety Model
 
-- Runs locally and analyzes local browser artifacts only.
+- Runs locally and analyzes local or copied browser artifacts only.
 - Does not modify original browser files.
-- Copies SQLite databases before reading them.
+- Copies Chromium SQLite databases before reading them. Files such as `History` and `Network\Cookies` are SQLite databases even though they do not use a `.db` extension.
 - Does not print or export raw cookie values.
-- Cookie output includes metadata and `value_sha256` only.
+- Cookie output includes metadata and `value_sha256` only. Encrypted cookie bytes from `encrypted_value` are hashed when a plaintext value is unavailable.
 - Sensitive headers such as `Cookie`, `Authorization`, `Set-Cookie`, and token-like headers are redacted.
 - Sensitive query parameters such as `token`, `session`, `auth`, `key`, `password`, and `code` are masked.
 - Missing artifacts are logged as warnings and do not stop the analysis.
@@ -19,30 +19,30 @@ It receives a browser `User Data` directory and a target domain or URL, then pro
 
 ### Install from a Git repository
 
-After publishing this project to GitHub, anyone can install it directly from the terminal:
+Anyone can install it directly from GitHub:
 
-```bash
+```powershell
 git clone https://github.com/Arthu133/BTForensic.git
 cd BTForensic
-python3 -m venv .venv
-source .venv/bin/activate
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
 pip install -e .
 BTForensic --version
 ```
 
 Users can also install directly from GitHub without keeping a local clone:
 
-```bash
+```powershell
 pip install git+https://github.com/Arthu133/BTForensic.git
 BTForensic --help
 ```
 
 ### Local development install
 
-```bash
+```powershell
 cd BTForensic
-python3 -m venv .venv
-source .venv/bin/activate
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
 pip install -e .
 ```
 
@@ -59,8 +59,8 @@ BTForensic uses only Python standard library modules. The external `jq` command 
 
 Optional:
 
-```bash
-sudo apt-get install jq
+```powershell
+winget install jqlang.jq
 ```
 
 ## Usage
@@ -77,25 +77,33 @@ When an analysis starts, the terminal displays a `BTForensic` banner before the 
 Defensive Chromium browser forensics | read-only local analysis
 ```
 
-```bash
-BTForensic --user-data "/home/user/.config/google-chrome" --target "example.com" --output "./case_example"
+Chrome on Windows:
+
+```powershell
+BTForensic --user-data "C:\Users\username\AppData\Local\Google\Chrome\User Data" --target "example.com" --output ".\case_example"
 ```
 
-Analyze a specific profile:
+Microsoft Edge on Windows:
 
-```bash
-BTForensic --user-data "/home/user/.config/google-chrome" --profile "Default" --target "https://example.com/login" --output "./case_login"
+```powershell
+BTForensic --user-data "C:\Users\username\AppData\Local\Microsoft\Edge\User Data" --target "example.com" --output ".\case_edge"
+```
+
+Analyze a specific profile, such as `Default`:
+
+```powershell
+BTForensic --user-data "C:\Users\username\AppData\Local\Google\Chrome\User Data" --profile "Default" --target "https://example.com/login" --output ".\case_login"
 ```
 
 Use a wider correlation window:
 
-```bash
-BTForensic --user-data "/home/user/.config/BraveSoftware/Brave-Browser" --target "example.com" --output "./case_brave" --window-minutes 60 --verbose
+```powershell
+BTForensic --user-data "C:\Cases\user01\Chrome\User Data" --target "example.com" --output ".\case_user01" --window-minutes 60 --verbose
 ```
 
 ## Parameters
 
-- `--user-data`: required path to the Chromium browser `User Data` directory.
+- `--user-data`: required path to the collected Chromium browser `User Data` directory.
 - `--target`: required domain or URL to investigate.
 - `--output`: required report output directory.
 - `--profile`: optional profile name, such as `Default`, `Profile 1`, or `Profile 2`.
@@ -136,7 +144,7 @@ case_example/
 
 ## Tests
 
-```bash
+```powershell
 python -m unittest discover -s tests
 ```
 
@@ -144,7 +152,7 @@ python -m unittest discover -s tests
 
 Create a GitHub repository named `BTForensic`, then run these commands inside the project directory:
 
-```bash
+```powershell
 git init
 git add .
 git commit -m "Initial BTForensic release"
@@ -155,7 +163,7 @@ git push -u origin main
 
 After that, anyone can download and install the tool with:
 
-```bash
+```powershell
 git clone https://github.com/Arthu133/BTForensic.git
 cd BTForensic
 pip install -e .
@@ -166,3 +174,5 @@ pip install -e .
 Chrome/WebKit timestamps are converted from microseconds since `1601-01-01T00:00:00Z` to ISO 8601 UTC and local time where applicable.
 
 Target matching accepts domains and URLs. A target like `example.com` matches `example.com`, `www.example.com`, `sub.example.com`, and URLs under those hosts. A full URL target prioritizes that path while still grouping related evidence by domain.
+
+On Chromium-based browsers, files such as `Default\History` and `Default\Network\Cookies` are SQLite databases without a `.db` extension. BTForensic reads those normal browser filenames directly and does not rename or modify them.
