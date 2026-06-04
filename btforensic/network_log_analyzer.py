@@ -52,6 +52,92 @@ def _extract_json_fields(line: str) -> dict:
     }
 
 
+def _load_json_lenient(raw: str):
+    cleaned = raw.strip().strip("\x00")
+    try:
+        return json.loads(cleaned)
+    except Exception:
+        start = cleaned.find("{")
+        end = cleaned.rfind("}")
+        if start >= 0 and end > start:
+            try:
+                return json.loads(cleaned[start:end + 1])
+            except Exception:
+                return None
+    return None
+
+
+def _server_matches_target(server: str | None, target: TargetInfo) -> bool:
+    if not server:
+        return False
+    return url_matches_target(server, target) or target.domain.lower() in server.lower()
+
+
+def _walk_anonymization_values(obj, path: str = ""):
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            current_path = f"{path}.{key}" if path else str(key)
+            key_lower = str(key).lower()
+            if ("anonymization" in key_lower or "isolation" in key_lower) and isinstance(value, str):
+                yield current_path, value
+            yield from _walk_anonymization_values(value, current_path)
+    elif isinstance(obj, list):
+        for index, value in enumerate(obj):
+            yield from _walk_anonymization_values(value, f"{path}[{index}]")
+
+
+def _http_server_property_matches(profile_name: str, path: Path, raw: str, target: TargetInfo) -> list[dict]:
+    obj = _load_json_lenient(raw)
+    if not isinstance(obj, dict):
+        return []
+
+    servers = (
+        obj.get("net", {})
+        .get("http_server_properties", {})
+        .get("servers", [])
+    )
+    if not isinstance(servers, list):
+        return []
+
+    matches = []
+    for index, server_obj in enumerate(servers):
+        if not isinstance(server_obj, dict):
+            continue
+        server = server_obj.get("server")
+        if not _server_matches_target(server, target):
+            continue
+
+        anonymization = []
+        for field_path, value in _walk_anonymization_values(server_obj):
+            decoded = decode_anonymization_payload(unquote(value))
+            anonymization.append({"field": field_path, **_safe_decoded_items(decoded)})
+
+        matches.append(
+            {
+                "profile": profile_name,
+                "file": str(path),
+                "line": None,
+                "source": "net.http_server_properties.servers",
+                "jq_filter_equivalent": '.net.http_server_properties.servers[] | select(.server|test("TARGET"))',
+                "server_index": index,
+                "matched_server": mask_url_query(server),
+                "url": mask_url_query(server),
+                "origin": None,
+                "referrer": None,
+                "initiator": None,
+                "method": None,
+                "status_code": None,
+                "timestamp": None,
+                "anonymization": anonymization,
+                "anonymization_urls": _flatten_anonymization_urls(anonymization),
+                "inferred_origins_from_anonymization": _infer_origins_from_anonymization(anonymization, target),
+                "headers": {},
+                "snippet": json.dumps({"server": server, "keys": sorted(server_obj.keys())}, ensure_ascii=False)[:500],
+            }
+        )
+    return matches
+
+
 def _regex_extract(line: str) -> dict:
     url_match = re.search(r"https?://[^\s\"'<>\\]+", line)
     method_match = re.search(r"\b(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\b", line)
@@ -126,35 +212,41 @@ def analyze_network_logs(profile_name: str, profile_path: Path, target: TargetIn
             target_texts.add(target.normalized_url.lower())
         for path in _candidate_files(profile_path):
             try:
-                with path.open("r", encoding="utf-8", errors="ignore") as handle:
-                    for line_no, line in enumerate(handle, start=1):
-                        lower = line.lower()
-                        if not any(text and text in lower for text in target_texts):
-                            continue
-                        fields = _extract_json_fields(line)
-                        regex_fields = _regex_extract(line)
-                        fields = {key: fields.get(key) or regex_fields.get(key) for key in regex_fields}
-                        fields["headers"] = redact_headers(fields.get("headers"))
-                        anonymization = _extract_anonymization(line)
-                        matches.append(
-                            {
-                                "profile": profile_name,
-                                "file": str(path),
-                                "line": line_no,
-                                "url": mask_url_query(fields.get("url")),
-                                "origin": mask_url_query(fields.get("origin")),
-                                "referrer": mask_url_query(fields.get("referrer")),
-                                "initiator": mask_url_query(fields.get("initiator")),
-                                "method": fields.get("method"),
-                                "status_code": fields.get("status_code"),
-                                "timestamp": fields.get("timestamp"),
-                                "anonymization": anonymization,
-                                "anonymization_urls": _flatten_anonymization_urls(anonymization),
-                                "inferred_origins_from_anonymization": _infer_origins_from_anonymization(anonymization, target),
-                                "headers": fields.get("headers") or {},
-                                "snippet": line.strip()[:500],
-                            }
-                        )
+                raw = path.read_text(encoding="utf-8", errors="ignore")
+                if not any(text and text in raw.lower() for text in target_texts):
+                    continue
+
+                matches.extend(_http_server_property_matches(profile_name, path, raw, target))
+
+                for line_no, line in enumerate(raw.splitlines(), start=1):
+                    lower = line.lower()
+                    if not any(text and text in lower for text in target_texts):
+                        continue
+                    fields = _extract_json_fields(line)
+                    regex_fields = _regex_extract(line)
+                    fields = {key: fields.get(key) or regex_fields.get(key) for key in regex_fields}
+                    fields["headers"] = redact_headers(fields.get("headers"))
+                    anonymization = _extract_anonymization(line)
+                    matches.append(
+                        {
+                            "profile": profile_name,
+                            "file": str(path),
+                            "line": line_no,
+                            "source": "text_match",
+                            "url": mask_url_query(fields.get("url")),
+                            "origin": mask_url_query(fields.get("origin")),
+                            "referrer": mask_url_query(fields.get("referrer")),
+                            "initiator": mask_url_query(fields.get("initiator")),
+                            "method": fields.get("method"),
+                            "status_code": fields.get("status_code"),
+                            "timestamp": fields.get("timestamp"),
+                            "anonymization": anonymization,
+                            "anonymization_urls": _flatten_anonymization_urls(anonymization),
+                            "inferred_origins_from_anonymization": _infer_origins_from_anonymization(anonymization, target),
+                            "headers": fields.get("headers") or {},
+                            "snippet": line.strip()[:500],
+                        }
+                    )
             except Exception as exc:
                 msg = f"Failed to scan {path}: {exc}"
                 logger.warning(msg)

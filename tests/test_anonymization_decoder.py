@@ -28,6 +28,12 @@ class AnonymizationDecoderTest(unittest.TestCase):
         self.assertIn("https://origin.example", result["extracted_urls"])
         self.assertIn("https://target.example", result["extracted_urls"])
 
+    def test_base64_binary_payload_uses_http_tail(self):
+        encoded = base64.b64encode(b"\x00\x01prefix\x00https://origin.example\x00\x00").decode("ascii")
+        result = decode_anonymization_payload(encoded)
+        self.assertIn("base64_http_tail", result["detected"])
+        self.assertIn("https://origin.example", result["extracted_urls"])
+
 
 if __name__ == "__main__":
     unittest.main()

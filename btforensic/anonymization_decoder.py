@@ -34,6 +34,25 @@ def _try_base64(value: str) -> str | None:
     return text
 
 
+def _try_base64_http_tail(value: str) -> str | None:
+    compact = value.strip()
+    if not compact or not re.fullmatch(r"[A-Za-z0-9+/=_-]+", compact):
+        return None
+    padded = compact + "=" * (-len(compact) % 4)
+    try:
+        raw = base64.urlsafe_b64decode(padded.encode("ascii"))
+    except Exception:
+        return None
+    indexes = [idx for idx in (raw.find(b"http"), raw.find(b"HTTP")) if idx >= 0]
+    if not indexes:
+        return None
+    tail = raw[min(indexes):].rstrip(b"\x00")
+    try:
+        return tail.decode("utf-8", errors="replace")
+    except Exception:
+        return None
+
+
 def _extract_urls(values: list[str]) -> list[str]:
     found = []
     seen = set()
@@ -70,6 +89,10 @@ def _decode_once(value: str) -> list[tuple[str, str]]:
     base64_decoded = _try_base64(value)
     if base64_decoded:
         candidates.append(("base64", base64_decoded))
+
+    base64_http_tail = _try_base64_http_tail(value)
+    if base64_http_tail and base64_http_tail != base64_decoded:
+        candidates.append(("base64_http_tail", base64_http_tail))
     return candidates
 
 

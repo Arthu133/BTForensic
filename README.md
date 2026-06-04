@@ -144,9 +144,20 @@ case_example/
 
 ## Network Origin Investigation Method
 
-For `.tmp` and other textual network artifacts, BTForensic searches records that contain the target domain or URL. When a matching record also includes fields such as `anonymization_key` or `network_isolation_key`, the tool attempts to decode that payload using URL decoding, JSON string unescaping, and Base64 decoding.
+For `.tmp` and other textual network artifacts, BTForensic follows the SOC workflow below:
 
-Decoded anonymization payloads are searched for embedded URLs and domains. URLs that are not the target are reported as `inferred_origins_from_anonymization`, which helps identify the page, top-frame site, frame site, or isolation context that caused the target URL to be called. Sensitive values are still redacted and raw cookie/header secrets are not exported.
+1. Locate `Default\Network\*.tmp` and related textual network files that contain the target domain or URL.
+2. When the file is a Chromium network JSON artifact, parse the equivalent of:
+
+   ```jq
+   .net.http_server_properties.servers[] | select(.server|test("TARGET"))
+   ```
+
+3. From the selected `server` object, extract fields such as `anonymization`, `anonymization_key`, `network_anonymization_key`, or `network_isolation_key`.
+4. Decode anonymization payloads with URL decoding, JSON string unescaping, Base64 decoding, and the common Chromium pattern of reading the decoded Base64 bytes from the first `http` byte until trailing null bytes.
+5. Report non-target URLs found inside the decoded payload as `inferred_origins_from_anonymization`.
+
+This helps identify the page, top-frame site, frame site, or isolation context that caused the target URL to be called. Sensitive values are still redacted and raw cookie/header secrets are not exported.
 
 ## Tests
 
