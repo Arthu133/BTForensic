@@ -9,6 +9,7 @@ from . import __version__
 from .bookmark_analyzer import analyze_bookmarks
 from .browser_discovery import discover_profiles
 from .cookie_analyzer import analyze_cookies
+from .defender_hunting import build_defender_context
 from .domain_utils import extract_host, normalize_target
 from .download_analyzer import analyze_downloads
 from .history_analyzer import analyze_history
@@ -49,6 +50,10 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--output", help="Directory where reports and JSON artifacts will be written. If omitted, prints a terminal summary only.")
     parser.add_argument("--profile", help="Analyze a specific browser profile, such as Default or Profile 1.")
     parser.add_argument("--window-minutes", type=int, default=30, help="Correlation window around target visits. Default: 30.")
+    parser.add_argument("--defender-input", help="CSV or JSON exported manually from Microsoft Defender for Endpoint Advanced Hunting.")
+    parser.add_argument("--defender-device", help="Optional DeviceName filter to include in generated Defender Advanced Hunting KQL.")
+    parser.add_argument("--defender-account", help="Optional account filter to include in generated Defender Advanced Hunting KQL.")
+    parser.add_argument("--defender-kql-output", help="Optional path to write Defender Advanced Hunting KQL without using --output.")
     parser.add_argument("--verbose", action="store_true", help="Enable detailed logging.")
     parser.add_argument("--version", action="version", version=f"BTForensic {__version__}")
     return parser
@@ -130,6 +135,27 @@ def _print_terminal_summary(context: dict) -> None:
         print("Warnings/errors")
         for error in summary["errors"][:10]:
             print(f"- {error}")
+    defender = context.get("defender") or {}
+    if defender:
+        print()
+        print("Microsoft Defender for Endpoint")
+        print("- Mode: manual Advanced Hunting export, no API connection")
+        input_summary = defender.get("input_summary")
+        if input_summary:
+            print(f"- Defender input rows: {input_summary.get('total_rows', 0)}")
+            print(f"- Rows matching target: {input_summary.get('target_matching_rows', 0)}")
+            devices = ", ".join(item["value"] for item in input_summary.get("top_devices", [])[:5])
+            processes = ", ".join(item["value"] for item in input_summary.get("top_processes", [])[:5])
+            if devices:
+                print(f"- Top devices: {devices}")
+            if processes:
+                print(f"- Top processes: {processes}")
+        else:
+            print("- No Defender export was provided. Run the generated KQL in Advanced Hunting and feed the CSV/JSON back with --defender-input.")
+        if context.get("defender_kql_output"):
+            print(f"- Defender KQL written to: {context['defender_kql_output']}")
+        elif not context.get("output_dir"):
+            print("- Use --output or --defender-kql-output to write the Defender KQL pack.")
 
 
 def run(args: argparse.Namespace) -> int:
@@ -219,6 +245,38 @@ def run(args: argparse.Namespace) -> int:
 
     origins = build_origins_and_referrers(target, related_urls, network_log_matches)
     timeline = build_timeline(visits_matches, cookies_matches, bookmarks_matches, downloads_matches, network_log_matches, origins)
+    defender = None
+    try:
+        defender = build_defender_context(
+            target=target,
+            history_summaries=history_summaries,
+            window_minutes=args.window_minutes,
+            input_path=args.defender_input,
+            device_name=args.defender_device,
+            account_name=args.defender_account,
+        )
+        if args.defender_input:
+            logger.info("Defender input parsed: %s", args.defender_input)
+    except Exception as exc:
+        message = f"Failed to parse Defender input: {exc}"
+        logger.error(message)
+        errors.append(message)
+        defender = build_defender_context(
+            target=target,
+            history_summaries=history_summaries,
+            window_minutes=args.window_minutes,
+            input_path=None,
+            device_name=args.defender_device,
+            account_name=args.defender_account,
+        )
+
+    defender_kql_output_path = None
+    if args.defender_kql_output and defender:
+        kql_path = Path(args.defender_kql_output).expanduser()
+        kql_path.parent.mkdir(parents=True, exist_ok=True)
+        kql_path.write_text(defender.get("kql_queries", ""), encoding="utf-8")
+        defender_kql_output_path = str(kql_path)
+        logger.info("Defender KQL written to: %s", kql_path)
 
     artifact_payloads = {
         "history_matches.json": history_matches,
@@ -228,6 +286,7 @@ def run(args: argparse.Namespace) -> int:
         "downloads_matches.json": downloads_matches,
         "network_log_matches.json": network_log_matches,
         "origins_and_referrers.json": origins,
+        "defender_input_summary.json": defender.get("input_summary") if defender else None,
     }
     raw_payloads = {
         "history_urls.json": raw_urls,
@@ -250,7 +309,10 @@ def run(args: argparse.Namespace) -> int:
         "network_scan_summaries": _sanitize_json(network_scan_summaries),
         "origins_and_referrers": _sanitize_json(origins),
         "timeline": _sanitize_json(timeline),
+        "defender": _sanitize_json(defender),
         "errors": errors,
+        "output_dir": str(output_dir) if output_dir else None,
+        "defender_kql_output": defender_kql_output_path,
     }
 
     if output_dir:
@@ -259,6 +321,7 @@ def run(args: argparse.Namespace) -> int:
         for filename, payload in raw_payloads.items():
             write_json(raw_dir / filename, _sanitize_json(payload))
         write_json(output_dir / "timeline.json", _sanitize_json(timeline))
+        (artifacts_dir / "defender_hunting_queries.kql").write_text(defender.get("kql_queries", "") if defender else "", encoding="utf-8")
         report_path = output_dir / "BTForensic_report.md"
         write_report(report_path, context)
 

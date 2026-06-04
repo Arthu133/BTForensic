@@ -15,6 +15,12 @@ def _first_last(summaries: list[dict]) -> tuple[str | None, str | None]:
     return (min(firsts) if firsts else None, max(lasts) if lasts else None)
 
 
+def _top_values(items: list[dict], limit: int = 8) -> str:
+    if not items:
+        return "None"
+    return ", ".join(f"`{item.get('value')}` ({item.get('count')})" for item in items[:limit])
+
+
 def write_report(output_path: Path, context: dict) -> None:
     case_summary = build_case_summary(context)
     summaries = context.get("history_summaries", [])
@@ -23,6 +29,8 @@ def write_report(output_path: Path, context: dict) -> None:
     errors = context.get("errors", [])
     profiles = ", ".join(context.get("profiles", [])) or "None"
     origins = context.get("origins_and_referrers", {})
+    defender = context.get("defender") or {}
+    defender_summary = defender.get("input_summary") if defender else None
 
     lines = [
         "# BTForensic Report",
@@ -39,6 +47,7 @@ def write_report(output_path: Path, context: dict) -> None:
         f"- Cookies related: {_count(context.get('cookies_matches'))}",
         f"- Downloads in window: {_count(context.get('downloads_matches'))}",
         f"- Network log matches: {_count(context.get('network_log_matches'))}",
+        f"- Defender input rows: {defender_summary.get('total_rows') if defender_summary else 'Not provided'}",
         f"- Probable caller found: {'Yes' if case_summary['probable_caller_found'] else 'No'}",
         "",
         "## Who Called The URL",
@@ -85,6 +94,40 @@ def write_report(output_path: Path, context: dict) -> None:
             lines.append(f"- `{file_path}`")
     else:
         lines.append("- No network files contained target evidence.")
+
+    lines.extend(
+        [
+            "",
+            "## Microsoft Defender For Endpoint Correlation",
+            "",
+            "- Mode: manual Advanced Hunting workflow, no API integration and no Defender credentials used by BTForensic.",
+            "- KQL query pack: `artifacts/defender_hunting_queries.kql`",
+        ]
+    )
+    if defender_summary:
+        lines.extend(
+            [
+                f"- Defender export parsed: `{defender_summary.get('source_file')}`",
+                f"- Total rows: {defender_summary.get('total_rows', 0)}",
+                f"- Rows matching target: {defender_summary.get('target_matching_rows', 0)}",
+                f"- First Defender timestamp: {defender_summary.get('first_timestamp_utc') or 'Not found'}",
+                f"- Last Defender timestamp: {defender_summary.get('last_timestamp_utc') or 'Not found'}",
+                f"- Top devices: {_top_values(defender_summary.get('top_devices', []))}",
+                f"- Top accounts: {_top_values(defender_summary.get('top_accounts', []))}",
+                f"- Top browser/process names: {_top_values(defender_summary.get('top_processes', []))}",
+                f"- Top parent processes: {_top_values(defender_summary.get('top_parent_processes', []))}",
+                f"- Top remote URLs: {_top_values(defender_summary.get('top_remote_urls', []), limit=5)}",
+                f"- Top remote IPs: {_top_values(defender_summary.get('top_remote_ips', []))}",
+                f"- Top action types: {_top_values(defender_summary.get('top_action_types', []))}",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                "- No Defender Advanced Hunting export was provided.",
+                "- Run the primary query from `artifacts/defender_hunting_queries.kql`, export CSV or JSON, then rerun with `--defender-input` to correlate the result.",
+            ]
+        )
 
     lines.extend(
         [
