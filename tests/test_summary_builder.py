@@ -31,6 +31,15 @@ class SummaryBuilderTest(unittest.TestCase):
             "bookmarks_matches": [],
             "downloads_matches": [],
             "network_log_matches": [{}],
+            "network_scan_summaries": [
+                {
+                    "primary_tmp_files_scanned": 5,
+                    "fallback_text_files_scanned": 2,
+                    "primary_tmp_files_with_target": 1,
+                    "fallback_text_files_with_target": 0,
+                    "files_with_target": ["Default/Network/a.tmp"],
+                }
+            ],
             "history_summaries": [{"first_seen_utc": "2024-01-01T00:00:00Z", "last_seen_utc": "2024-01-02T00:00:00Z", "access_count": 1}],
             "errors": [],
         }
@@ -38,6 +47,8 @@ class SummaryBuilderTest(unittest.TestCase):
         self.assertEqual(summary["history_match_count"], 1)
         self.assertEqual(summary["cookie_match_count"], 2)
         self.assertEqual(summary["network_match_count"], 1)
+        self.assertEqual(summary["network_scan"]["primary_tmp_files_scanned"], 5)
+        self.assertEqual(summary["network_scan"]["primary_tmp_files_with_target"], 1)
 
 
 if __name__ == "__main__":

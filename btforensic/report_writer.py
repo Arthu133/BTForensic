@@ -72,13 +72,16 @@ def write_report(output_path: Path, context: dict) -> None:
             f"- Cookies matched: {case_summary['cookie_match_count']}",
             f"- Bookmarks matched: {case_summary['bookmark_match_count']}",
             f"- Downloads matched: {case_summary['download_match_count']}",
+            f"- Primary Network `.tmp` files scanned: {case_summary['network_scan']['primary_tmp_files_scanned']}",
+            f"- Primary Network `.tmp` files containing target: {case_summary['network_scan']['primary_tmp_files_with_target']}",
             "",
             "## Network Files With Target Evidence",
             "",
         ]
     )
-    if case_summary.get("network_files"):
-        for file_path in case_summary["network_files"][:50]:
+    files_with_target = case_summary["network_scan"].get("files_with_target") or case_summary.get("network_files")
+    if files_with_target:
+        for file_path in files_with_target[:50]:
             lines.append(f"- `{file_path}`")
     else:
         lines.append("- No network files contained target evidence.")

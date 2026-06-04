@@ -104,6 +104,9 @@ def _print_terminal_summary(context: dict) -> None:
     print(f"- Cookies: {summary['cookie_match_count']}")
     print(f"- Bookmarks: {summary['bookmark_match_count']}")
     print(f"- Downloads: {summary['download_match_count']}")
+    network_scan = summary.get("network_scan", {})
+    print(f"- Primary Network .tmp scanned: {network_scan.get('primary_tmp_files_scanned', 0)}")
+    print(f"- Primary Network .tmp containing target: {network_scan.get('primary_tmp_files_with_target', 0)}")
     print()
     print("Who called the URL")
     callers = summary.get("probable_callers", [])
@@ -115,10 +118,11 @@ def _print_terminal_summary(context: dict) -> None:
                 print(f"  target record: {item['target_record']}")
     else:
         print("- Not identified from available History, Network logs, referrer/initiator fields, or anonymization payloads.")
-    if summary.get("network_files"):
+    files_with_target = network_scan.get("files_with_target") or summary.get("network_files")
+    if files_with_target:
         print()
         print("Network files with target evidence")
-        for file_path in summary["network_files"][:10]:
+        for file_path in files_with_target[:10]:
             print(f"- {file_path}")
     if summary.get("errors"):
         print()
@@ -160,6 +164,7 @@ def run(args: argparse.Namespace) -> int:
     bookmarks_matches = []
     downloads_matches = []
     network_log_matches = []
+    network_scan_summaries = []
     related_urls = []
     history_summaries = []
     raw_urls = []
@@ -207,6 +212,7 @@ def run(args: argparse.Namespace) -> int:
 
         network = analyze_network_logs(profile.name, profile.path, target, logger)
         network_log_matches.extend(network["network_log_matches"])
+        network_scan_summaries.append(network.get("scan_summary", {}))
         errors.extend(network["errors"])
         logger.info("Network log matches: %s", len(network["network_log_matches"]))
 
@@ -240,6 +246,7 @@ def run(args: argparse.Namespace) -> int:
         "bookmarks_matches": _sanitize_json(bookmarks_matches),
         "downloads_matches": _sanitize_json(downloads_matches),
         "network_log_matches": _sanitize_json(network_log_matches),
+        "network_scan_summaries": _sanitize_json(network_scan_summaries),
         "origins_and_referrers": _sanitize_json(origins),
         "timeline": _sanitize_json(timeline),
         "errors": errors,

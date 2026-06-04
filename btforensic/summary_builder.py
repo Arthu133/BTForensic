@@ -67,6 +67,7 @@ def build_case_summary(context: dict) -> dict:
     access_count = sum(item.get("access_count", 0) for item in summaries)
     callers = probable_callers(context)
     network_matches = context.get("network_log_matches", []) or []
+    scan_summaries = context.get("network_scan_summaries", []) or []
     return {
         "target": context.get("target_raw"),
         "target_domain": context.get("target_domain"),
@@ -82,5 +83,16 @@ def build_case_summary(context: dict) -> dict:
         "bookmark_match_count": len(context.get("bookmarks_matches", []) or []),
         "download_match_count": len(context.get("downloads_matches", []) or []),
         "network_files": _unique(item.get("file") for item in network_matches),
+        "network_scan": {
+            "primary_tmp_files_scanned": sum(item.get("primary_tmp_files_scanned", 0) for item in scan_summaries),
+            "fallback_text_files_scanned": sum(item.get("fallback_text_files_scanned", 0) for item in scan_summaries),
+            "primary_tmp_files_with_target": sum(item.get("primary_tmp_files_with_target", 0) for item in scan_summaries),
+            "fallback_text_files_with_target": sum(item.get("fallback_text_files_with_target", 0) for item in scan_summaries),
+            "files_with_target": _unique(
+                file_path
+                for item in scan_summaries
+                for file_path in (item.get("files_with_target", []) or [])
+            ),
+        },
         "errors": context.get("errors", []) or [],
     }

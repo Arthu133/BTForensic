@@ -232,7 +232,15 @@ def _infer_origins_from_anonymization(records: list[dict], target: TargetInfo) -
 
 
 def analyze_network_logs(profile_name: str, profile_path: Path, target: TargetInfo, logger: logging.Logger) -> dict:
-    result = {"network_log_matches": [], "errors": []}
+    scan_summary = {
+        "profile": profile_name,
+        "primary_tmp_files_scanned": 0,
+        "fallback_text_files_scanned": 0,
+        "primary_tmp_files_with_target": 0,
+        "fallback_text_files_with_target": 0,
+        "files_with_target": [],
+    }
+    result = {"network_log_matches": [], "errors": [], "scan_summary": scan_summary}
     try:
         matches = []
         target_texts = {target.domain.lower(), target.raw.lower()}
@@ -240,9 +248,20 @@ def analyze_network_logs(profile_name: str, profile_path: Path, target: TargetIn
             target_texts.add(target.normalized_url.lower())
         for path, discovery_method, network_dir in _candidate_files(profile_path):
             try:
+                if discovery_method == "primary_network_tmp_select_string":
+                    scan_summary["primary_tmp_files_scanned"] += 1
+                else:
+                    scan_summary["fallback_text_files_scanned"] += 1
+
                 raw = path.read_text(encoding="utf-8", errors="ignore")
                 if not any(text and text in raw.lower() for text in target_texts):
                     continue
+
+                if discovery_method == "primary_network_tmp_select_string":
+                    scan_summary["primary_tmp_files_with_target"] += 1
+                else:
+                    scan_summary["fallback_text_files_with_target"] += 1
+                scan_summary["files_with_target"].append(str(path))
 
                 select_string_equivalent = (
                     _select_string_command(network_dir, target)
