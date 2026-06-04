@@ -1,6 +1,6 @@
 # BTForensic
 
-BTForensic is a defensive, read-only command-line tool for SOC and DFIR analysis of copied Chromium-based browser `User Data` folders, including Google Chrome, Microsoft Edge, Chromium, and Brave.
+Browser Tool Forensic is a defensive, read-only command-line tool for SOC and DFIR analysis of copied Chromium-based browser `User Data` folders, including Google Chrome, Microsoft Edge, Chromium, and Brave.
 
 The primary use case is Windows incident response: collect a user's browser folder, such as `C:\Users\username\AppData\Local\Google\Chrome\User Data` or `C:\Users\username\AppData\Local\Microsoft\Edge\User Data`, then run BTForensic against that copied folder from a terminal. Original browser files are never modified: SQLite databases are copied to a temporary directory before being opened in read-only mode.
 
