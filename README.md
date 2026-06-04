@@ -152,7 +152,13 @@ case_example/
 
 For `.tmp` and other textual network artifacts, BTForensic follows the SOC workflow below:
 
-1. Locate `Default\Network\*.tmp` and related textual network files that contain the target domain or URL.
+1. Locate the primary `.tmp` file that recorded the access, equivalent to:
+
+   ```powershell
+   Select-String -Path "User Data\Default\Network\*.tmp" -Pattern "URL" -List | % Path
+   ```
+
+   Matches from this step are marked as `discovery_method = primary_network_tmp_select_string`.
 2. When the file is a Chromium network JSON artifact, parse the equivalent of:
 
    ```jq

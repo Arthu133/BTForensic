@@ -15,12 +15,21 @@ TEXT_EXTENSIONS = {".tmp", ".log", ".json", ".ldb", ".txt", ".dat"}
 SCAN_DIRS = ("Network", "Network Logs", "Service Worker", "Cache")
 MAX_FILE_SIZE = 25 * 1024 * 1024
 SENSITIVE_WORDS = ("cookie", "authorization", "token", "secret", "session")
+PRIMARY_TMP_DISCOVERY = r'Select-String -Path "<profile>\Network\*.tmp" -Pattern "TARGET" -List | % Path'
 
 
 def _candidate_files(profile_path: Path):
+    seen = set()
+
+    network_dir = profile_path / "Network"
+    if network_dir.exists():
+        for path in sorted(network_dir.glob("*.tmp")):
+            if path.is_file() and path.stat().st_size <= MAX_FILE_SIZE:
+                seen.add(path)
+                yield path, "primary_network_tmp_select_string"
+
     bases = [profile_path]
     bases.extend(profile_path / name for name in SCAN_DIRS if (profile_path / name).exists())
-    seen = set()
     for base in bases:
         if not base.exists():
             continue
@@ -29,7 +38,7 @@ def _candidate_files(profile_path: Path):
                 continue
             seen.add(path)
             if path.suffix.lower() in TEXT_EXTENSIONS and path.stat().st_size <= MAX_FILE_SIZE:
-                yield path
+                yield path, "fallback_text_artifact_scan"
 
 
 def _extract_json_fields(line: str) -> dict:
@@ -86,7 +95,7 @@ def _walk_anonymization_values(obj, path: str = ""):
             yield from _walk_anonymization_values(value, f"{path}[{index}]")
 
 
-def _http_server_property_matches(profile_name: str, path: Path, raw: str, target: TargetInfo) -> list[dict]:
+def _http_server_property_matches(profile_name: str, path: Path, raw: str, target: TargetInfo, discovery_method: str) -> list[dict]:
     obj = _load_json_lenient(raw)
     if not isinstance(obj, dict):
         return []
@@ -116,6 +125,8 @@ def _http_server_property_matches(profile_name: str, path: Path, raw: str, targe
             {
                 "profile": profile_name,
                 "file": str(path),
+                "discovery_method": discovery_method,
+                "select_string_equivalent": PRIMARY_TMP_DISCOVERY if discovery_method == "primary_network_tmp_select_string" else None,
                 "line": None,
                 "source": "net.http_server_properties.servers",
                 "jq_filter_equivalent": '.net.http_server_properties.servers[] | select(.server|test("TARGET"))',
@@ -210,13 +221,13 @@ def analyze_network_logs(profile_name: str, profile_path: Path, target: TargetIn
         target_texts = {target.domain.lower(), target.raw.lower()}
         if target.normalized_url:
             target_texts.add(target.normalized_url.lower())
-        for path in _candidate_files(profile_path):
+        for path, discovery_method in _candidate_files(profile_path):
             try:
                 raw = path.read_text(encoding="utf-8", errors="ignore")
                 if not any(text and text in raw.lower() for text in target_texts):
                     continue
 
-                matches.extend(_http_server_property_matches(profile_name, path, raw, target))
+                matches.extend(_http_server_property_matches(profile_name, path, raw, target, discovery_method))
 
                 for line_no, line in enumerate(raw.splitlines(), start=1):
                     lower = line.lower()
@@ -231,6 +242,8 @@ def analyze_network_logs(profile_name: str, profile_path: Path, target: TargetIn
                         {
                             "profile": profile_name,
                             "file": str(path),
+                            "discovery_method": discovery_method,
+                            "select_string_equivalent": PRIMARY_TMP_DISCOVERY if discovery_method == "primary_network_tmp_select_string" else None,
                             "line": line_no,
                             "source": "text_match",
                             "url": mask_url_query(fields.get("url")),

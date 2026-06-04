@@ -32,6 +32,8 @@ class NetworkLogAnalyzerTest(unittest.TestCase):
 
             self.assertEqual(len(result["network_log_matches"]), 1)
             match = result["network_log_matches"][0]
+            self.assertEqual(match["discovery_method"], "primary_network_tmp_select_string")
+            self.assertIn("Select-String", match["select_string_equivalent"])
             self.assertIn("https://origin.example", match["inferred_origins_from_anonymization"])
             self.assertIn("https://linkedin.com", match["anonymization_urls"])
 
@@ -67,6 +69,7 @@ class NetworkLogAnalyzerTest(unittest.TestCase):
                 if item.get("source") == "net.http_server_properties.servers"
             ]
             self.assertEqual(len(structured), 1)
+            self.assertEqual(structured[0]["discovery_method"], "primary_network_tmp_select_string")
             self.assertEqual(structured[0]["matched_server"], "https://linkedin.com")
             self.assertIn("https://origin.example", structured[0]["inferred_origins_from_anonymization"])
 
